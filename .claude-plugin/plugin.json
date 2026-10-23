@@ -1,7 +1,7 @@
 {
   "name": "cache-tax",
   "version": "2.3.1",
-  "description": "A Claude Code mod that keeps the one-hour prompt cache warm during breaks and stops a cold send once with its estimated rewrite cost. Warming uses model requests and costs tokens. Requires Claude Code 2.1.287+.",
+  "description": "Claude Code 外掛:休息期間讓一小時的提示快取保持溫熱,並在快取已冷時攔截一次送出,顯示預估的重寫成本。保溫會發出模型請求,會消耗 token。需要 Claude Code 2.1.287 以上。",
   "author": {
     "name": "Karan Bansal"
   },

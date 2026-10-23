@@ -112,7 +112,7 @@ export function fmtDuration(ms: number): string {
 }
 
 function fmtUsd(usd: number | null): string {
-  return usd == null ? 'n/a' : '$' + (usd >= 100 ? usd.toFixed(0) : usd.toFixed(2))
+  return usd == null ? '無' : '$' + (usd >= 100 ? usd.toFixed(0) : usd.toFixed(2))
 }
 
 function fmtTok(n: number): string {
@@ -147,11 +147,11 @@ function isCold(s: State, now: number): boolean {
 
 function guardText(s: State, now: number): string {
   const price = priceOf(s.lastModel, s.ctx)
-  const rate = price ? `$${price[1]}/MTok` : 'the cache-write rate'
+  const rate = price ? `$${price[1]}/MTok` : '快取寫入費率'
   const warm = warmUsd(s)
-  return `the prompt cache went cold ${fmtDuration(now - s.lastRequestAt - TTL_MS)} ago. Sending this re-writes ` +
-    `up to ${s.ctx.toLocaleString('en-US')} tokens at ${rate} = ${fmtUsd(coldUsd(s))}` +
-    (warm == null ? '' : ` (a warm turn would have cost ${fmtUsd(warm)})`) + '.'
+  return `提示快取已在 ${fmtDuration(now - s.lastRequestAt - TTL_MS)} 前冷卻。送出這則訊息會重新寫入` +
+    `最多 ${s.ctx.toLocaleString('en-US')} 個 token,費率 ${rate},共 ${fmtUsd(coldUsd(s))}` +
+    (warm == null ? '' : `(快取還熱的話只需 ${fmtUsd(warm)})`) + '。'
 }
 
 export type ResumeFields = {
@@ -192,7 +192,7 @@ export function seedFromResume(s: State, e: ResumeFields, now: number): string |
   s.compacted = false
   if (e.prompt_cache_likely_expired !== true || s.ctx < BIG_TOKENS) return null
   const usd = typeof e.estimated_cache_write_usd === 'number' ? fmtUsd(e.estimated_cache_write_usd) : fmtUsd(coldUsd(s))
-  return `resuming cold. The first message re-writes ${s.ctx.toLocaleString('en-US')} tokens, about ${usd}. /clear and paste a summary if you only need the conclusions.`
+  return `恢復的工作階段快取已冷。第一則訊息會重新寫入 ${s.ctx.toLocaleString('en-US')} 個 token,約 ${usd}。如果只需要結論,可以先 /clear 再貼上摘要。`
 }
 
 /** A transcript resumed without the time of its last response: that response came after its first launch, so an hour after that launch the cache may be cold. */
@@ -203,9 +203,9 @@ function mayBeCold(s: State, now: number): boolean {
 /** The line for a resumed session whose last response time never arrived: the cache may be cold, and this is what that would cost. */
 function unknownText(s: State): string {
   const price = priceOf(s.lastModel, s.ctx)
-  const rate = price ? `$${price[1]}/MTok` : 'the cache-write rate'
-  return `resumed with up to ${s.ctx.toLocaleString('en-US')} tokens of context and no time of its last response, so the cache may be cold. ` +
-    `If it is, this message re-writes them at ${rate} = ${fmtUsd(coldUsd(s))}.`
+  const rate = price ? `$${price[1]}/MTok` : '快取寫入費率'
+  return `已恢復的工作階段,上下文最多 ${s.ctx.toLocaleString('en-US')} 個 token,但不知道上次回應的時間,所以快取可能已冷。` +
+    `若已冷,這則訊息會以 ${rate} 重新寫入,共 ${fmtUsd(coldUsd(s))}。`
 }
 
 /** The conversation was summarized: the next request is the first over the new prefix, and a ping out for the old one is dropped. */
@@ -217,16 +217,16 @@ function markCompacted(s: State) {
 }
 
 function statusText(s: State, now: number): string | undefined {
-  if (s.stopped) return `keepwarm stopped: ${s.stopped}`
+  if (s.stopped) return `保溫已停止:${s.stopped}`
   if (!s.deadline) return undefined
-  const pingText = s.last ? ` · last ping read ${fmtTok(s.last.read)} ${fmtUsd(s.last.usd)}` : ''
-  const nextText = !s.lastRequestAt ? ' · waiting for the first turn'
-    : s.compacted ? ' · waiting for the first turn after compaction'
-    : isCold(s, now) ? ` · cold now, first ping ${fmtDuration(s.every)} after the next turn`
-    : s.waitForTurn ? ' · nothing to fork yet, first ping after the next turn'
-    : s.retries ? ` · API busy, ping retry ${s.retries} of ${MAX_RETRIES}`
-    : ` · ping in ${fmtDuration(s.lastRequestAt + s.every - now)}`
-  return `keepwarm ${fmtDuration(s.deadline - now)} left${nextText}${pingText}`
+  const pingText = s.last ? ` · 上次 ping 讀取 ${fmtTok(s.last.read)} ${fmtUsd(s.last.usd)}` : ''
+  const nextText = !s.lastRequestAt ? ' · 等待第一輪對話'
+    : s.compacted ? ' · 壓縮後等待第一輪對話'
+    : isCold(s, now) ? ` · 目前已冷,下一輪對話後 ${fmtDuration(s.every)} 送出第一次 ping`
+    : s.waitForTurn ? ' · 還沒有可分支的對話,下一輪對話後送出第一次 ping'
+    : s.retries ? ` · API 忙碌,ping 重試第 ${s.retries}/${MAX_RETRIES} 次`
+    : ` · ${fmtDuration(s.lastRequestAt + s.every - now)} 後 ping`
+  return `保溫中,剩 ${fmtDuration(s.deadline - now)}${nextText}${pingText}`
 }
 
 function updateStatus($: EngineInterface, s: State, now: number) {
@@ -386,18 +386,18 @@ async function ping($: EngineInterface, s: State) {
   // Checked after the last await. A stop, /clear, resume or compaction, or a main request that moved the
   // cache clock, replaced what this fork was sent for: its reply is dropped and the window armed afresh.
   if (gen !== s.gen || s.lastRequestAt !== sentAt) return s.pending ? undefined : arm($, s)
-  if ('err' in sent) return stop($, s, `the ping failed, ${sent.err instanceof Error ? sent.err.message : String(sent.err)}`)
+  if ('err' in sent) return stop($, s, `ping 失敗:${sent.err instanceof Error ? sent.err.message : String(sent.err)}`)
   const reply = sent.reply
-  if (reply === null) return stop($, s, 'the engine did not send the ping, either the snapshot was cold or the API call failed')
+  if (reply === null) return stop($, s, 'ping 沒有送出:快照已冷,或 API 呼叫失敗')
   if (reply.isAnswered === false) {
     // A restarted process has no conversation to fork until its first turn; the window waits for one instead of ending.
     if (reply.reason === 'nothing-to-fork') {
       s.waitForTurn = true
       return arm($, s)
     }
-    const reason = reply.reason === 'api-error' ? `the API call failed${reply.status === null ? '' : ` (${reply.status})`}`
-      : reply.reason === 'aborted' ? 'the ping was interrupted'
-      : 'the ping returned no text'
+    const reason = reply.reason === 'api-error' ? `API 呼叫失敗${reply.status === null ? '' : `(${reply.status})`}`
+      : reply.reason === 'aborted' ? 'ping 被中斷'
+      : 'ping 沒有回傳文字'
     // A busy or failing API is usually brief; retry while a ping can still land a minute before the cache goes cold.
     if (reply.reason === 'api-error' && (reply.status === null || reply.status === 429 || reply.status >= 500)) {
       const wait = MIN_PING_MS * 2 ** s.retries
@@ -419,13 +419,13 @@ async function ping($: EngineInterface, s: State) {
   const warm = u.cache_read_input_tokens > 0 && u.cache_creation_input_tokens < 0.1 * u.cache_read_input_tokens
   const usd = price ? pingUsd(u, price) : null
   s.last = { at: now, read: u.cache_read_input_tokens, write: u.cache_creation_input_tokens, usd, warm }
-  if (!warm) return stop($, s, `the ping read ${fmtTok(u.cache_read_input_tokens)} and wrote ${fmtTok(u.cache_creation_input_tokens)} tokens (${fmtUsd(usd)}), the cache was already gone`)
+  if (!warm) return stop($, s, `ping 讀取 ${fmtTok(u.cache_read_input_tokens)}、寫入 ${fmtTok(u.cache_creation_input_tokens)} 個 token(${fmtUsd(usd)}),快取早已消失`)
   s.lastRequestAt = now
   await arm($, s)
 }
 
 function afterRetries(n: number): string {
-  return n ? ` after ${n} ${n === 1 ? 'retry' : 'retries'}` : ''
+  return n ? `,已重試 ${n} 次` : ''
 }
 
 /** The reply to an arming command; on a cold cache it says when the first ping can come. */
@@ -435,8 +435,8 @@ function holdMs(s: State): number {
 }
 
 function armedText(s: State, now: number, windowMs: number): string {
-  if (isCold(s, now)) return `keepwarm on for ${fmtDuration(windowMs)}. The cache is cold now, so the first ping comes ${fmtDuration(s.every)} after the next turn`
-  return `keepwarm on for ${fmtDuration(windowMs)}, a ping ${fmtDuration(s.every)} after each idle stretch keeps the cache read, not re-written`
+  if (isCold(s, now)) return `已開啟保溫 ${fmtDuration(windowMs)}。快取目前已冷,所以第一次 ping 會在下一輪對話後 ${fmtDuration(s.every)} 送出`
+  return `已開啟保溫 ${fmtDuration(windowMs)},每段閒置後 ${fmtDuration(s.every)} 送一次 ping,讓快取維持「讀取」而不是重新寫入`
 }
 
 // A /keepwarm off after `offs` was read wins: the window it cancelled is not written back. A caller that awaited
@@ -467,22 +467,22 @@ async function startWindow($: EngineInterface, s: State, windowMs: number, every
 
 function card(s: State, now: number): string {
   const lines: string[] = []
-  lines.push(`${s.lastModel ?? 'model not seen yet'}`)
-  if (s.compacted) lines.push('state       reset by compaction, waiting for the first turn')
-  else if (s.resumedAt) lines.push(mayBeCold(s, now) ? 'state       unknown, resumed without the time of its last response' : `state       resumed without the time of its last response, warm for up to ${fmtDuration(s.resumedAt + TTL_MS - now)} more`)
-  else if (!s.lastRequestAt) lines.push('state       no request yet this session')
-  else if (isCold(s, now)) lines.push(`state       COLD, last request ${fmtDuration(now - s.lastRequestAt)} ago`)
-  else lines.push(`state       warm, ${fmtDuration(s.lastRequestAt + TTL_MS - now)} left`)
-  lines.push(`context     ${s.ctx.toLocaleString('en-US')} tokens`)
-  lines.push(`cold cost   ${fmtUsd(coldUsd(s))} to re-write it (warm turn ${fmtUsd(warmUsd(s))})`)
-  const always = s.always ? ' (always)' : ''
-  const idle = s.always ? 'off until the next turn, which arms 6h00m (always)' : 'off (/keepwarm to arm it for 6h00m)'
-  lines.push(`keepwarm    ${s.deadline ? (statusText(s, now) ?? '').replace(/^keepwarm /, 'on, ') + always : s.stopped ? `stopped, ${s.stopped}${always}` : idle}`)
+  lines.push(`${s.lastModel ?? '尚未偵測到模型'}`)
+  if (s.compacted) lines.push('狀態:因壓縮而重置,等待第一輪對話')
+  else if (s.resumedAt) lines.push(mayBeCold(s, now) ? '狀態:未知,恢復時沒有上次回應的時間' : `狀態:恢復時沒有上次回應的時間,最多還能維持熱快取 ${fmtDuration(s.resumedAt + TTL_MS - now)}`)
+  else if (!s.lastRequestAt) lines.push('狀態:這個工作階段還沒有送出過請求')
+  else if (isCold(s, now)) lines.push(`狀態:已冷,上次請求在 ${fmtDuration(now - s.lastRequestAt)} 前`)
+  else lines.push(`狀態:熱,還剩 ${fmtDuration(s.lastRequestAt + TTL_MS - now)}`)
+  lines.push(`上下文:${s.ctx.toLocaleString('en-US')} 個 token`)
+  lines.push(`冷啟動成本:重新寫入需 ${fmtUsd(coldUsd(s))}(熱快取的一輪只需 ${fmtUsd(warmUsd(s))})`)
+  const always = s.always ? '(always)' : ''
+  const idle = s.always ? `目前關閉,下一輪對話會開啟 6h00m(always)` : '關閉(輸入 /keepwarm 開啟 6h00m)'
+  lines.push(`保溫:${s.deadline ? (statusText(s, now) ?? '').replace(/^保溫中,/, '開啟,') + always : s.stopped ? `已停止,${s.stopped}${always}` : idle}`)
   const pings = breakEvenPings(s)
-  if (pings != null) lines.push(`break-even  up to ${pings} pings at the read rate cost one cold write, about ${fmtDuration(pings * s.every)} of idle at one ping per ${fmtDuration(s.every)}`)
-  lines.push(`guard       ${s.guard === 'refuse' ? 'refuse once (/cache-tax guard warn to only show the price)' : 'warn only (/cache-tax guard refuse to be stopped once)'}`)
+  if (pings != null) lines.push(`損益平衡:以讀取費率最多 ping ${pings} 次才抵得上一次冷寫入,以每 ${fmtDuration(s.every)} 一次計,約可閒置 ${fmtDuration(pings * s.every)}`)
+  lines.push(`守衛:${s.guard === 'refuse' ? '攔截一次(/cache-tax guard warn 改為只顯示價格)' : '只警告(/cache-tax guard refuse 改為攔截一次)'}`)
   const paid = s.misses.reduce((a, m) => a + (m.usd ?? 0), 0)
-  lines.push(`session     ${s.misses.length} cold write${s.misses.length === 1 ? '' : 's'} paid, ${fmtUsd(paid)}`)
+  lines.push(`本次工作階段:已付 ${s.misses.length} 次冷寫入,共 ${fmtUsd(paid)}`)
   return lines.join('\n')
 }
 
@@ -517,6 +517,7 @@ export const register: Register = on => {
     const state = s.stopped ? 'stopped' : !s.lastRequestAt || s.compacted ? 'unknown' : isCold(s, now) ? 'cold' : 'warm'
     const color = noColor ? undefined : state === 'warm' ? 'success' : state === 'cold' ? (light ? '#c15f3c' : '#d97757') : undefined
     const { Box, Text } = $.ui.resolve(e)
+    const stateZh = { warm: '熱', cold: '冷', stopped: '已停止', unknown: '未知' }[state]
     const asset = statusIcons[light ? 'light' : 'dark'][state === 'warm' || state === 'cold' ? state : 'neutral']
     const icon = noColor ? Text({ bold: true, children: ['[>]'] })
       : e.surface === 'terminal' ? $.ui.resolve(e).Image({ source: { png: asset.png }, columns: 3, rows: 1, alt: '[>]' })
@@ -528,7 +529,7 @@ export const register: Register = on => {
         Box({ flexShrink: 0, children: [icon] }),
         Text({ children: [
           ' cache-tax · ',
-          Text({ color, bold: true, children: [state] }),
+          Text({ color, bold: true, children: [stateZh] }),
           ` · ${text}`,
         ] }),
       ] }),
@@ -559,20 +560,20 @@ export const register: Register = on => {
     else if (s.deadline) await arm($, s)
     await $.command.register({
       name: 'keepwarm',
-      description: 'Keep the prompt cache warm: bare for 6h, a window such as 90m, always, off, or status (cache-tax)',
+      description: '保持提示快取溫熱:單獨輸入為 6 小時,或指定如 90m 的時間窗,也可用 always、off、status(cache-tax)',
       argumentHint: '[6h | always | off | status]',
       immediate: true,
     })
     await $.command.register({
       name: 'cache-tax',
-      description: 'Prompt cache state, cold price and this session\'s cold writes; guard warn|refuse (cache-tax, the Mod)',
+      description: '提示快取狀態、冷啟動價格與本次工作階段的冷寫入;guard warn|refuse(cache-tax)',
       argumentHint: '[status | guard warn | guard refuse]',
       immediate: true,
     })
     // The hook form of cache-tax ships a /cache-tax:status skill; both installed means two guards.
     const commands = await $.command.list()
     if (commands.some(c => c.name === 'cache-tax:status')) {
-      $.ui.log('the hook form (cache-tax@claude-code-hooks) is also installed, so a cold send is warned about or refused twice. Uninstall it, or /cache-tax guard warn here.')
+      $.ui.log('hook 版本(cache-tax@claude-code-hooks)也已安裝,冷快取送出時會被警告或攔截兩次。請解除安裝其中一個,或在這裡執行 /cache-tax guard warn。')
     }
     updateStatus($, s, now)
     return r
@@ -612,14 +613,14 @@ export const register: Register = on => {
     if (words[0] === 'off') {
       const wasAlways = s.always
       await stop($, s, null, true)
-      return { text: wasAlways ? 'keepwarm is off, and always is off for every session from its next turn' : 'keepwarm is off' }
+      return { text: wasAlways ? '保溫已關閉,所有工作階段的 always 也會從下一輪對話起關閉' : '保溫已關閉' }
     }
     if (words[0] === 'always') {
       s.always = true
       await $.store.set(KEY_ALWAYS, true)
       await startWindow($, s, DEFAULT_WINDOW_MS, PING_AFTER_MS)
-      const cold = isCold(s, now) ? `. The cache is cold now, so the first ping comes ${fmtDuration(s.every)} after the next turn` : ''
-      return { text: `keepwarm always on: every session stays warm until ${fmtDuration(DEFAULT_WINDOW_MS)} after its last turn; /keepwarm off turns it off for good${cold}` }
+      const cold = isCold(s, now) ? `。快取目前已冷,所以第一次 ping 會在下一輪對話後 ${fmtDuration(s.every)} 送出` : ''
+      return { text: `保溫 always 已開啟:每個工作階段在最後一輪對話後都會保持溫熱 ${fmtDuration(DEFAULT_WINDOW_MS)};輸入 /keepwarm off 可永久關閉${cold}` }
     }
     if (!words.length) {
       await startWindow($, s, DEFAULT_WINDOW_MS, PING_AFTER_MS)
@@ -627,20 +628,20 @@ export const register: Register = on => {
     }
     if (words[0] !== 'status') {
       const window = parseDuration(words[0])
-      if (!window) return { text: 'keepwarm takes a window such as 6h or 90m, or always, off, or status' }
+      if (!window) return { text: 'keepwarm 的參數可以是 6h、90m 這類時間窗,或 always、off、status' }
       // "every 2m" is a testing knob and lasts only for the window it was given with.
       let every = PING_AFTER_MS
       if (words[1] === 'every') {
         const period = parseDuration(words[2] ?? '')
         // A period of the cache's whole hour or more would fire only once the cache is already cold.
-        if (period == null || period < MIN_PING_MS || period >= TTL_MS) return { text: 'every takes a period from 1m to 59m' }
+        if (period == null || period < MIN_PING_MS || period >= TTL_MS) return { text: 'every 的間隔須介於 1m 到 59m' }
         every = period
       }
       await startWindow($, s, window, every)
       const rolls = s.always && (window < DEFAULT_WINDOW_MS || every !== PING_AFTER_MS)
-      return { text: armedText(s, now, window) + (rolls ? `. Always is on, so your next turn makes it at least ${fmtDuration(DEFAULT_WINDOW_MS)} at one ping per ${fmtDuration(PING_AFTER_MS)}` : '') }
+      return { text: armedText(s, now, window) + (rolls ? `。always 已開啟,所以你的下一輪對話會把它延長到至少 ${fmtDuration(DEFAULT_WINDOW_MS)},每 ${fmtDuration(PING_AFTER_MS)} 送一次 ping` : '') }
     }
-    return { text: statusText(s, now) ?? 'keepwarm is off' }
+    return { text: statusText(s, now) ?? '保溫已關閉' }
   })
 
   on('command.run', { command: 'cache-tax' }, async ($, e) => {
@@ -648,10 +649,10 @@ export const register: Register = on => {
     const words = String(e.args ?? '').trim().split(/\s+/).filter(Boolean)
     const now = await $.clock.now()
     if (words[0] === 'guard') {
-      if (words[1] !== 'warn' && words[1] !== 'refuse') return { text: '/cache-tax guard takes warn or refuse' }
+      if (words[1] !== 'warn' && words[1] !== 'refuse') return { text: '/cache-tax guard 的參數是 warn 或 refuse' }
       s.guard = words[1]
       await $.store.set(KEY_GUARD, s.guard)
-      return { text: s.guard === 'refuse' ? 'guard set to refuse once: a cold send is dropped with its price, the resend goes through' : 'guard set to warn: a cold send goes through with its price shown' }
+      return { text: s.guard === 'refuse' ? '守衛已設為攔截一次:冷快取的送出會被擋下並顯示價格,再送一次就會通過' : '守衛已設為警告:冷快取的送出會直接通過,並顯示價格' }
     }
     return { text: card(s, now) }
   })
@@ -673,7 +674,7 @@ export const register: Register = on => {
     // A refused prompt that no person sent would be lost: nobody is there to send it again.
     const unattended = UNATTENDED.has(e.origin.kind)
     if (s.guard === 'warn' || unattended) {
-      $.ui.log(`${guardText(s, now)} Sending anyway${unattended ? `, since this ${e.origin.kind} prompt cannot be sent again` : ''}; keepwarm will hold the cache for ${fmtDuration(holdMs(s))} once it lands.`)
+      $.ui.log(`${guardText(s, now)}仍然送出${unattended ? `,因為這個 ${e.origin.kind} 提示無法重送` : ''};送達後保溫會把快取維持 ${fmtDuration(holdMs(s))}。`)
       s.coldWritePending = true
       return next(e)
     }
@@ -683,7 +684,7 @@ export const register: Register = on => {
       return next(e)
     }
     s.ackedAt = s.lastRequestAt
-    return { drop: `cache-tax: ${guardText(s, now)} Send it again to pay it, and keepwarm will then hold the cache for ${fmtDuration(holdMs(s))}. Or /clear and start from a note.` }
+    return { drop: `cache-tax:${guardText(s, now)}再送一次就代表同意支付,之後保溫會把快取維持 ${fmtDuration(holdMs(s))}。或者先 /clear,從一份筆記重新開始。` }
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -761,8 +762,8 @@ export const register: Register = on => {
         s.misses.push({ at: now, tokens: write, usd })
         const extend = s.deadline < now + AUTO_WARM_MS && s.offs === offs
         if (extend) await startWindow($, s, AUTO_WARM_MS, s.every, offs)
-        $.ui.log(`cold write of ${fmtTok(write)} tokens paid (${fmtUsd(usd)}).` +
-          (extend ? ` Keeping the cache warm for ${fmtDuration(AUTO_WARM_MS)} so it is not paid again today; /keepwarm off to stop.` : ''))
+        $.ui.log(`已支付一次冷寫入 ${fmtTok(write)} 個 token(${fmtUsd(usd)})。` +
+          (extend ? `接下來 ${fmtDuration(AUTO_WARM_MS)} 會保持快取溫熱,今天就不用再付一次;輸入 /keepwarm off 可停止。` : ''))
       }
     }
     s.coldWritePending = false
